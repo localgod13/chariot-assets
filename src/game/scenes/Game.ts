@@ -222,6 +222,11 @@ export class Game extends Scene {
     
     // Load scythe image for player upgrades
     this.load.image('scythe', 'https://cdn.jsdelivr.net/gh/localgod13/chariot-assets@New-branch-reverted/public/assets/scythe.png')
+    this.load.image('scytheupgrade', 'https://cdn.jsdelivr.net/gh/localgod13/chariot-assets@main/public/scytheupgrade.png')
+    
+    // Load scythe hit sound effects
+    this.load.audio('scythehit1', 'https://cdn.jsdelivr.net/gh/localgod13/chariot-assets@main/public/scythehit1.mp3')
+    this.load.audio('scythehit2', 'https://cdn.jsdelivr.net/gh/localgod13/chariot-assets@main/public/scythehit2.mp3')
     
     // Load background music
     this.load.audio('arena', 'https://1jnxxd5hmjmhwwrc.public.blob.vercel-storage.com/arena-6OLO9iZKW6G7wyuzBXPiOe8q62FiYD.mp3')
@@ -501,6 +506,20 @@ export class Game extends Scene {
       }
     });
     
+    // Add C key handler to toggle scythe collision boxes (for testing)
+    this.input.keyboard!.on('keydown-C', () => {
+      if (this.player && this.player.toggleScytheCollisionBoxes) {
+        this.player.toggleScytheCollisionBoxes();
+      }
+    });
+    
+    // Add P key handler to toggle scythe upgrade (for testing)
+    this.input.keyboard!.on('keydown-P', () => {
+      if (this.player && this.player.toggleScytheUpgrade) {
+        this.player.toggleScytheUpgrade();
+      }
+    });
+    
 
   }
 
@@ -754,6 +773,14 @@ export class Game extends Scene {
         return
       }
       
+      // Check if enemy should be hit by scythes instead of hitting player
+      if (player.wouldScytheHitEnemy && player.wouldScytheHitEnemy(enemy)) {
+        // Enemy is in scythe range - damage the enemy instead of the player
+        console.log('Enemy hit scythe instead of player - processing scythe damage immediately')
+        player.processImmediateScytheDamage(enemy)
+        return
+      }
+      
       let damage = 10
       switch (enemy.enemyType) {
         case 'BASIC': damage = 10; break
@@ -762,6 +789,7 @@ export class Game extends Scene {
         case 'BOSS': damage = 30; break
       }
       
+      console.log(`Player takes ${damage} damage from ${enemy.enemyType} enemy`)
       player.takeDamage(damage)
       this.onEnemyKilled()
       enemy.destroy()
@@ -816,6 +844,9 @@ export class Game extends Scene {
     
     // Update player every frame (critical for responsiveness)
     this.player.update(time, this.enemies)
+    
+    // Check scythe collisions every frame (for responsive melee combat)
+    this.player.checkScytheCollisions(this.enemies)
     
     // Stagger expensive operations across frames to reduce hitching
     const frameOffset = this.updateCounter % this.UPDATE_FREQUENCY

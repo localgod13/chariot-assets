@@ -32,23 +32,33 @@ export class Card extends Phaser.GameObjects.Container {
       this.cardImage.setOrigin(0.5)
       this.add(this.cardImage)
       
-      // Position title in lower area when image is present
-      this.titleText = scene.add.text(0, 50, upgrade.name, {
-        fontSize: '16px',
-        color: '#ffffff',
-        align: 'center',
-        wordWrap: { width: 220 }
-      })
-      this.titleText.setOrigin(0.5)
-      this.add(this.titleText)
-      
-      // Position description at bottom when image is present
-      this.descText = scene.add.text(0, 70, upgrade.description, {
-        fontSize: '12px',
-        color: '#cccccc',
-        align: 'center',
-        wordWrap: { width: 220 }
-      })
+      // Position title in lower area when image is present (hide if empty)
+      if (upgrade.name && upgrade.name.trim() !== '') {
+        this.titleText = scene.add.text(0, 50, upgrade.name, {
+          fontSize: '16px',
+          color: '#ffffff',
+          align: 'center',
+          wordWrap: { width: 220 }
+        })
+        this.titleText.setOrigin(0.5)
+        this.add(this.titleText)
+        
+        // Position description at bottom when title is present
+        this.descText = scene.add.text(0, 70, upgrade.description, {
+          fontSize: '12px',
+          color: '#cccccc',
+          align: 'center',
+          wordWrap: { width: 220 }
+        })
+      } else {
+        // No title - move description up to take its place
+        this.descText = scene.add.text(0, 50, upgrade.description, {
+          fontSize: '14px', // Slightly larger font when no title
+          color: '#cccccc',
+          align: 'center',
+          wordWrap: { width: 220 }
+        })
+      }
       this.descText.setOrigin(0.5)
       this.add(this.descText)
       

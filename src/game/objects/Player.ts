@@ -68,10 +68,28 @@ export class Player extends Phaser.GameObjects.Container {
   // Scythe system
   private leftScythe: Phaser.GameObjects.Image | null = null
   private rightScythe: Phaser.GameObjects.Image | null = null
-  private scythesVisible: boolean = true
+  private scythesVisible: boolean = false // Hidden by default until upgrade is obtained
   private scytheFlipTimer: number = 0
   private readonly SCYTHE_FLIP_INTERVAL: number = 80 // 0.08 seconds in milliseconds
   private scythesFlipped: boolean = false
+  
+  // Scythe collision debug visualization
+  private leftScytheCollisionBox: Phaser.GameObjects.Graphics | null = null
+  private rightScytheCollisionBox: Phaser.GameObjects.Graphics | null = null
+  
+  // Player collision debug visualization
+  private playerCollisionBox: Phaser.GameObjects.Graphics | null = null
+  private readonly SCYTHE_COLLISION_WIDTH: number = 120 // Much larger horizontal collision width for testing
+  private readonly SCYTHE_COLLISION_HEIGHT: number = 80 // Much larger vertical collision height for testing
+  private readonly SCYTHE_COLLISION_OFFSET: number = 10 // Reduced offset to keep closer to player
+  
+  // Scythe damage system
+  private readonly SCYTHE_BASE_DAMAGE: number = 45 // Base damage per scythe hit
+  private readonly SCYTHE_HIT_COOLDOWN: number = 150 // Reduced cooldown for more responsive melee combat (ms)
+  private readonly SCYTHE_KNOCKBACK_FORCE: number = 300 // Knockback force applied to enemies
+  private readonly SCYTHE_KNOCKBACK_DURATION: number = 200 // Duration of knockback effect (ms)
+  private scytheHitMap: Map<number, number> = new Map() // Track last hit time per enemy ID
+  private lastScytheSound: string = '' // Track which scythe sound was played last
 
   
   constructor(scene: Scene, x: number, y: number) {
@@ -96,14 +114,14 @@ export class Player extends Phaser.GameObjects.Container {
     this.leftScythe.setScale(0.110)
     this.leftScythe.setOrigin(0.5, 0.5)
     this.leftScythe.setRotation(Math.PI) // Point west (left)
-    this.leftScythe.setVisible(true)
+    this.leftScythe.setVisible(false) // Hidden by default until upgrade is obtained
     this.add(this.leftScythe) // Add scythes first
 
     this.rightScythe = scene.add.image(40.8, 51.2, 'scythe')
     this.rightScythe.setScale(0.110)
-    this.rightScythe.setOrigin(0.5, 0.5)
+    this.rightScythe.setOrigin(0.5, 0.51)
     this.rightScythe.setRotation(0) // Point east (right) - default direction
-    this.rightScythe.setVisible(true)
+    this.rightScythe.setVisible(false) // Hidden by default until upgrade is obtained
     this.add(this.rightScythe) // Add scythes first
     
     // Create chariot sprite after scythes (so it renders on top)
@@ -111,6 +129,9 @@ export class Player extends Phaser.GameObjects.Container {
     this.chariotSprite.setScale(0.21) // Reduced by 30% from 0.3 to 0.21
     this.chariotSprite.setOrigin(0.5, 0.5)
     this.add(this.chariotSprite) // Add chariot last so it renders on top
+    
+    // Create collision box visualizations for scythes (debug)
+    this.createScytheCollisionBoxes(scene)
     
     // Add to scene first
     scene.add.existing(this)
@@ -132,16 +153,22 @@ export class Player extends Phaser.GameObjects.Container {
     const displayWidth = 1024 * 0.21  // Original width * scale
     const displayHeight = 1024 * 0.21 // Original height * scale
     
-    // Set body size to 40% of display size (half of the previous 80%)
-    const bodyWidth = displayWidth * 0.4
-    const bodyHeight = displayHeight * 0.4
+    // Set body size to a rectangle that represents the chariot shape
+    // Chariot should be longer front-to-back (height) than side-to-side (width)
+    const bodyWidth = displayWidth * 0.3   // 30% of display width (narrower)
+    const bodyHeight = displayHeight * 0.5  // 50% of display height (longer)
     
-    // Set the physics body size
+    // Set the physics body size as rectangle
     this.body.setSize(bodyWidth, bodyHeight)
     
     // For Containers, we need to center the body properly
     // The body should be centered on the Container's origin (0,0)
     this.body.setOffset(-bodyWidth / 2, -bodyHeight / 2)
+    
+    console.log(`Player collision body: ${bodyWidth.toFixed(1)}x${bodyHeight.toFixed(1)} (rectangular, will rotate with player)`)
+    
+    // Create player collision debug visualization
+    this.createPlayerCollisionBox(scene, bodyWidth, bodyHeight)
     
     // Input setup - ensure fresh input handlers
     this.setupInputHandlers(scene)
@@ -625,6 +652,9 @@ export class Player extends Phaser.GameObjects.Container {
     // Smooth rotation using lerp to prevent jittery movement
     const rotationSpeed = 0.1 // Lower = smoother, higher = more responsive
     this.rotation = Phaser.Math.Angle.RotateTo(this.rotation, adjustedTargetAngle, rotationSpeed)
+    
+    // Note: Physics body rotation is handled automatically by Phaser for Containers
+    // No need to manually sync body.rotation
   }
 
   private handleMovement() {
@@ -1166,7 +1196,346 @@ export class Player extends Phaser.GameObjects.Container {
 
   
   public areScythesVisible(): boolean {
-    return this.scythesVisible
+    return this.scythesVisible && this.upgrades.has('scythe')
+  }
+
+  public showScythes(): void {
+    if (this.upgrades.has('scythe') && this.leftScythe && this.rightScythe) {
+      this.scythesVisible = true
+      this.leftScythe.setVisible(true)
+      this.rightScythe.setVisible(true)
+      // Note: Collision boxes remain hidden by default (use 'C' key to toggle)
+    }
+  }
+
+  public hideScythes(): void {
+    this.scythesVisible = false
+    if (this.leftScythe && this.rightScythe) {
+      this.leftScythe.setVisible(false)
+      this.rightScythe.setVisible(false)
+    }
+    // Hide collision boxes when scythes are hidden
+    this.hideScytheCollisionBoxes()
+  }
+  
+  private createScytheCollisionBoxes(scene: Scene): void {
+    // Create left scythe collision box (oval extending further left)
+    this.leftScytheCollisionBox = scene.add.graphics()
+    this.leftScytheCollisionBox.lineStyle(2, 0xff0000, 0.8) // Red outline, 80% opacity
+    this.leftScytheCollisionBox.strokeEllipse(-42.4 - this.SCYTHE_COLLISION_OFFSET, 48.0, this.SCYTHE_COLLISION_WIDTH, this.SCYTHE_COLLISION_HEIGHT)
+    this.leftScytheCollisionBox.setVisible(false) // Hidden by default
+    this.add(this.leftScytheCollisionBox)
+    
+    // Create right scythe collision box (oval extending further right)
+    this.rightScytheCollisionBox = scene.add.graphics()
+    this.rightScytheCollisionBox.lineStyle(2, 0x00ff00, 0.8) // Green outline, 80% opacity
+    this.rightScytheCollisionBox.strokeEllipse(40.8 + this.SCYTHE_COLLISION_OFFSET, 51.2, this.SCYTHE_COLLISION_WIDTH, this.SCYTHE_COLLISION_HEIGHT)
+    this.rightScytheCollisionBox.setVisible(false) // Hidden by default
+        this.add(this.rightScytheCollisionBox)
+  }
+
+  private createPlayerCollisionBox(scene: Scene, width: number, height: number): void {
+    // Create player collision box (rectangle that rotates with player)
+    this.playerCollisionBox = scene.add.graphics()
+    this.playerCollisionBox.lineStyle(3, 0x0000ff, 0.9) // Blue outline, 90% opacity
+    this.playerCollisionBox.strokeRect(-width / 2, -height / 2, width, height)
+    this.playerCollisionBox.setVisible(false) // Hidden by default
+    this.add(this.playerCollisionBox)
+  }
+
+
+
+
+  
+  private hideScytheCollisionBoxes(): void {
+    if (this.leftScytheCollisionBox && this.rightScytheCollisionBox) {
+      this.leftScytheCollisionBox.setVisible(false)
+      this.rightScytheCollisionBox.setVisible(false)
+    }
+  }
+  
+  // Debug method to toggle collision boxes (for testing)
+  public toggleScytheCollisionBoxes(): void {
+    if (this.leftScytheCollisionBox && this.rightScytheCollisionBox && this.playerCollisionBox) {
+      const isVisible = this.leftScytheCollisionBox.visible
+      this.leftScytheCollisionBox.setVisible(!isVisible)
+      this.rightScytheCollisionBox.setVisible(!isVisible)
+      this.playerCollisionBox.setVisible(!isVisible)
+      console.log(`All collision boxes ${!isVisible ? 'shown' : 'hidden'} (Player: blue rectangle, Scythes: red/green ovals)`)
+    }
+  }
+  
+  // Debug method to toggle scythe upgrade (for testing)
+  public toggleScytheUpgrade(): void {
+    if (this.upgrades.has('scythe')) {
+      // Remove scythe upgrade
+      this.upgrades.delete('scythe')
+      this.upgradelevels.delete('scythe')
+      this.hideScythes()
+      console.log('Scythe upgrade removed for testing')
+    } else {
+      // Add scythe upgrade
+      this.upgrades.add('scythe')
+      this.setUpgradeLevel('scythe', 1)
+      this.showScythes()
+      console.log('Scythe upgrade added for testing (Level 1)')
+    }
+  }
+  
+  // Check if enemy would be hit by scythes (used to prevent player damage)
+  public wouldScytheHitEnemy(enemy: any): boolean {
+    if (!this.scythesVisible || !this.upgrades.has('scythe')) {
+      console.log('Scythe priority check failed: scythes not visible or no upgrade')
+      return false
+    }
+    
+    const leftScytheX = this.x + (-42.4 - this.SCYTHE_COLLISION_OFFSET)
+    const leftScytheY = this.y + 48.0
+    const rightScytheX = this.x + (40.8 + this.SCYTHE_COLLISION_OFFSET)
+    const rightScytheY = this.y + 51.2
+    
+    const enemyX = enemy.x
+    const enemyY = enemy.y
+    
+    // Use much larger collision areas for priority check (very aggressive protection)
+    const priorityWidth = this.SCYTHE_COLLISION_WIDTH + 30
+    const priorityHeight = this.SCYTHE_COLLISION_HEIGHT + 30
+    
+    console.log(`Priority check: Player at (${this.x.toFixed(1)}, ${this.y.toFixed(1)}), Enemy at (${enemyX.toFixed(1)}, ${enemyY.toFixed(1)})`)
+    console.log(`Left scythe at (${leftScytheX.toFixed(1)}, ${leftScytheY.toFixed(1)}), Right scythe at (${rightScytheX.toFixed(1)}, ${rightScytheY.toFixed(1)})`)
+    console.log(`Priority collision size: ${priorityWidth}x${priorityHeight}`)
+    
+    // Check if enemy is in either scythe collision area with priority buffer
+    const leftHit = this.isPointInEllipse(enemyX, enemyY, leftScytheX, leftScytheY, priorityWidth, priorityHeight)
+    const rightHit = this.isPointInEllipse(enemyX, enemyY, rightScytheX, rightScytheY, priorityWidth, priorityHeight)
+    
+    console.log(`Priority collision results: Left=${leftHit}, Right=${rightHit}`)
+    
+    if (leftHit || rightHit) {
+      console.log(`SCYTHE PRIORITY ACTIVATED: Enemy would be hit by ${leftHit ? 'left' : 'right'} scythe`)
+      return true
+    }
+    
+    console.log('No scythe priority - enemy will damage player')
+    return false
+  }
+  
+  // Process immediate scythe damage when enemy touches player but is in scythe range
+  public processImmediateScytheDamage(enemy: any): void {
+    console.log('processImmediateScytheDamage called')
+    
+    if (!this.scythesVisible || !this.upgrades.has('scythe')) {
+      console.log('processImmediateScytheDamage failed: scythes not visible or no upgrade')
+      return
+    }
+    
+    const currentTime = Date.now()
+    const leftScytheX = this.x + (-42.4 - this.SCYTHE_COLLISION_OFFSET)
+    const leftScytheY = this.y + 48.0
+    const rightScytheX = this.x + (40.8 + this.SCYTHE_COLLISION_OFFSET)
+    const rightScytheY = this.y + 51.2
+    
+    const enemyX = enemy.x
+    const enemyY = enemy.y
+    const enemyId = enemy.id || enemy.x + enemy.y
+    
+    console.log(`Immediate damage check: Enemy at (${enemyX.toFixed(1)}, ${enemyY.toFixed(1)})`)
+    console.log(`Immediate scythe positions: Left (${leftScytheX.toFixed(1)}, ${leftScytheY.toFixed(1)}), Right (${rightScytheX.toFixed(1)}, ${rightScytheY.toFixed(1)})`)
+    
+    // Check if enemy was hit recently (respect cooldown)
+    const lastHitTime = this.scytheHitMap.get(enemyId) || 0
+    if (currentTime - lastHitTime < this.SCYTHE_HIT_COOLDOWN) {
+      console.log('Scythe hit blocked by cooldown - enemy should not damage player either')
+      return // Don't damage enemy again, but also don't let enemy damage player
+    }
+    
+    // Check which scythe should hit the enemy
+    const leftHit = this.isPointInEllipse(enemyX, enemyY, leftScytheX, leftScytheY, this.SCYTHE_COLLISION_WIDTH, this.SCYTHE_COLLISION_HEIGHT)
+    const rightHit = this.isPointInEllipse(enemyX, enemyY, rightScytheX, rightScytheY, this.SCYTHE_COLLISION_WIDTH, this.SCYTHE_COLLISION_HEIGHT)
+    
+    console.log(`Immediate collision results: Left=${leftHit}, Right=${rightHit}`)
+    
+    if (leftHit) {
+      this.damageEnemyWithScythe(enemy, enemyId, currentTime, 'left')
+      console.log('✅ Immediate left scythe damage processed successfully')
+    } else if (rightHit) {
+      this.damageEnemyWithScythe(enemy, enemyId, currentTime, 'right')
+      console.log('✅ Immediate right scythe damage processed successfully')
+    } else {
+      console.log('❌ No immediate scythe hit detected - this should not happen!')
+    }
+  }
+  
+  // Check for scythe collisions with enemies
+  public checkScytheCollisions(enemies: Phaser.GameObjects.Group): void {
+    if (!this.scythesVisible || !this.upgrades.has('scythe')) return
+    
+    const currentTime = Date.now()
+    const leftScytheX = this.x + (-42.4 - this.SCYTHE_COLLISION_OFFSET)
+    const leftScytheY = this.y + 48.0
+    const rightScytheX = this.x + (40.8 + this.SCYTHE_COLLISION_OFFSET)
+    const rightScytheY = this.y + 51.2
+    
+    let enemiesChecked = 0
+    let enemiesInRange = 0
+    
+    enemies.children.entries.forEach((enemy: any) => {
+      if (!enemy.active) return
+      
+      enemiesChecked++
+      const enemyId = enemy.id || enemy.x + enemy.y // Use ID or fallback to position
+      const lastHitTime = this.scytheHitMap.get(enemyId) || 0
+      
+      // Check cooldown
+      if (currentTime - lastHitTime < this.SCYTHE_HIT_COOLDOWN) return
+      
+      const enemyX = enemy.x
+      const enemyY = enemy.y
+      
+      // Check left scythe collision (oval)
+      if (this.isPointInEllipse(enemyX, enemyY, leftScytheX, leftScytheY, this.SCYTHE_COLLISION_WIDTH, this.SCYTHE_COLLISION_HEIGHT)) {
+        enemiesInRange++
+        this.damageEnemyWithScythe(enemy, enemyId, currentTime, 'left')
+        return // Don't check right scythe if left already hit
+      }
+      
+      // Check right scythe collision (oval)
+      if (this.isPointInEllipse(enemyX, enemyY, rightScytheX, rightScytheY, this.SCYTHE_COLLISION_WIDTH, this.SCYTHE_COLLISION_HEIGHT)) {
+        enemiesInRange++
+        this.damageEnemyWithScythe(enemy, enemyId, currentTime, 'right')
+      }
+    })
+    
+    // Debug logging every 30 frames (about once per second)
+    if (this.scene && (this.scene as any).updateCounter && (this.scene as any).updateCounter % 30 === 0) {
+      console.log(`Scythe collision check: ${enemiesChecked} enemies checked, ${enemiesInRange} in range`)
+    }
+  }
+  
+  private isPointInEllipse(pointX: number, pointY: number, ellipseX: number, ellipseY: number, width: number, height: number): boolean {
+    const dx = pointX - ellipseX
+    const dy = pointY - ellipseY
+    const a = width / 2
+    const b = height / 2
+    const ellipseResult = (dx * dx) / (a * a) + (dy * dy) / (b * b) <= 1
+    
+    // Also check simple distance as backup
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    const maxRadius = Math.max(a, b)
+    const distanceResult = distance <= maxRadius
+    
+    // Use the more generous result for now (testing)
+    const result = ellipseResult || distanceResult
+    
+    if (result) {
+      console.log(`Collision detected! Point (${pointX.toFixed(1)}, ${pointY.toFixed(1)}) vs Ellipse (${ellipseX.toFixed(1)}, ${ellipseY.toFixed(1)}) size ${width}x${height}`)
+      console.log(`  Distance: ${distance.toFixed(1)} vs MaxRadius: ${maxRadius.toFixed(1)} = ${distanceResult}`)
+      console.log(`  Ellipse: ${((dx * dx) / (a * a) + (dy * dy) / (b * b)).toFixed(3)} <= 1 = ${ellipseResult}`)
+    }
+    
+    return result
+  }
+  
+  private damageEnemyWithScythe(enemy: any, enemyId: number, currentTime: number, scytheSide: 'left' | 'right'): void {
+    const scytheDamage = this.getScytheDamage()
+    
+    // Apply damage
+    enemy.takeDamage(scytheDamage)
+    
+    // Record hit time
+    this.scytheHitMap.set(enemyId, currentTime)
+    
+    // Apply knockback effect to push enemy away from player
+    this.applyScytheKnockback(enemy, scytheSide)
+    
+    // Add visual/audio effects
+    this.createScytheHitEffect(enemy.x, enemy.y, scytheSide)
+    
+    console.log(`${scytheSide} scythe hit enemy for ${scytheDamage} damage with knockback`)
+  }
+  
+  private getScytheDamage(): number {
+    const scytheLevel = this.getUpgradeLevel('scythe')
+    return this.SCYTHE_BASE_DAMAGE + (scytheLevel * 15) // +15 damage per level
+  }
+
+  private applyScytheKnockback(enemy: any, scytheSide: 'left' | 'right'): void {
+    if (!enemy.body) return // Safety check for physics body
+    
+    // Calculate knockback direction based on scythe side and player position
+    const angleFromPlayer = Phaser.Math.Angle.Between(this.x, this.y, enemy.x, enemy.y)
+    
+    // Adjust angle based on which scythe hit (left scythe pushes more left, right scythe pushes more right)
+    let knockbackAngle = angleFromPlayer
+    if (scytheSide === 'left') {
+      // Left scythe pushes enemy more to the left relative to player
+      knockbackAngle += Math.PI * 0.25 // 45 degrees left
+    } else {
+      // Right scythe pushes enemy more to the right relative to player
+      knockbackAngle -= Math.PI * 0.25 // 45 degrees right
+    }
+    
+    // Calculate knockback velocity
+    const knockbackX = Math.cos(knockbackAngle) * this.SCYTHE_KNOCKBACK_FORCE
+    const knockbackY = Math.sin(knockbackAngle) * this.SCYTHE_KNOCKBACK_FORCE
+    
+    // Apply immediate velocity change
+    enemy.body.setVelocity(knockbackX, knockbackY)
+    
+    // Create tween to gradually reduce the knockback over time
+    const scene = this.scene as any
+    if (scene && scene.tweens) {
+      scene.tweens.add({
+        targets: enemy.body.velocity,
+        x: 0,
+        y: 0,
+        duration: this.SCYTHE_KNOCKBACK_DURATION,
+        ease: 'Power2'
+      })
+    }
+    
+    console.log(`Applied ${scytheSide} scythe knockback: angle ${(knockbackAngle * 180 / Math.PI).toFixed(1)}°, force ${this.SCYTHE_KNOCKBACK_FORCE}`)
+  }
+  
+  private createScytheHitEffect(x: number, y: number, scytheSide: 'left' | 'right'): void {
+    const scene = this.scene as any
+    if (!scene) return
+    
+    // Create blood effect at hit location
+    const hitEffect = scene.add.graphics()
+    const color = scytheSide === 'left' ? 0xff4444 : 0x44ff44 // Red for left, green for right
+    hitEffect.fillStyle(color, 0.8)
+    hitEffect.fillCircle(x, y, 8)
+    hitEffect.setDepth(1000)
+    
+    // Fade out effect
+    scene.tweens.add({
+      targets: hitEffect,
+      alpha: 0,
+      scale: 1.5,
+      duration: 200,
+      onComplete: () => {
+        hitEffect.destroy()
+      }
+    })
+    
+    // Play alternating scythe hit sounds (never the same back-to-back)
+    if (scene.sound) {
+      let scytheSound: string
+      if (this.lastScytheSound === 'scythehit1') {
+        scytheSound = 'scythehit2'
+      } else {
+        scytheSound = 'scythehit1'
+      }
+      
+      scene.sound.play(scytheSound, {
+        volume: 0.15, // Reduced by 75% from 0.6 to 0.15
+        rate: Phaser.Math.FloatBetween(0.95, 1.05) // Slight pitch variation
+      })
+      
+      // Update last sound played
+      this.lastScytheSound = scytheSound
+    }
   }
 
 
@@ -1178,8 +1547,8 @@ export class Player extends Phaser.GameObjects.Container {
   }
 
   private updateScytheFlipping(time: number): void {
-    // Only flip scythes when the player is moving
-    if (this.isMoving && this.leftScythe && this.rightScythe) {
+    // Only flip scythes when they are visible and the player is moving
+    if (this.scythesVisible && this.isMoving && this.leftScythe && this.rightScythe) {
       // Check if it's time to flip
       if (time - this.scytheFlipTimer >= this.SCYTHE_FLIP_INTERVAL) {
         this.scythesFlipped = !this.scythesFlipped
@@ -1191,7 +1560,7 @@ export class Player extends Phaser.GameObjects.Container {
         // Update the timer
         this.scytheFlipTimer = time
       }
-    } else if (!this.isMoving && this.leftScythe && this.rightScythe) {
+    } else if (this.scythesVisible && !this.isMoving && this.leftScythe && this.rightScythe) {
       // Reset to normal orientation when stopped
       this.leftScythe.setFlipY(false)
       this.rightScythe.setFlipY(false)
@@ -1238,6 +1607,19 @@ export class Player extends Phaser.GameObjects.Container {
       this.rightScythe.destroy()
       this.rightScythe = null
     }
+    
+    // Clean up collision boxes
+    if (this.leftScytheCollisionBox) {
+      this.leftScytheCollisionBox.destroy()
+      this.leftScytheCollisionBox = null
+    }
+    if (this.rightScytheCollisionBox) {
+      this.rightScytheCollisionBox.destroy()
+      this.rightScytheCollisionBox = null
+    }
+    
+    // Clean up scythe hit map
+    this.scytheHitMap.clear()
     
     super.destroy()
   }

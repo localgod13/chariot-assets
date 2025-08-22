@@ -156,6 +156,24 @@ export const UPGRADES: Upgrade[] = [
       player.setUpgradeLevel('bullet_storm', currentLevel)
       player.addUpgrade('bullet_storm')
     }
+  },
+  {
+    id: 'scythe',
+    name: '',
+    description: 'Attached Scythes to the wheels of your chariot for melee damage!',
+    rarity: 'common',
+    color: 0x8B4513, // Brown color for scythes
+    maxLevel: 3, // Allow upgrading scythe damage
+    imageKey: 'scytheupgrade', // Use scytheupgrade.png for upgrade card
+    effect: (player) => {
+      const currentLevel = player.getUpgradeLevel('scythe') + 1
+      player.setUpgradeLevel('scythe', currentLevel)
+      player.addUpgrade('scythe')
+      // Show the scythes when the upgrade is obtained (first time)
+      if (currentLevel === 1 && player.showScythes) {
+        player.showScythes()
+      }
+    }
   }
 ]
 
@@ -243,6 +261,12 @@ function updateUpgradeDescription(upgrade: Upgrade) {
       const bounces = 1 + level // Level 1: bounces to 2 enemies, Level 2: bounces to 3 enemies
       upgrade.description = `Bullets bounce between ${bounces} enemies after hitting the first target`
       if (level > 1) upgrade.name = `${upgrade.name} ${level}`
+      break
+      
+    case 'scythe':
+      const scytheDamage = 45 + (level * 15)
+      upgrade.description = `Attached Scythes to the wheels of your chariot for ${scytheDamage} melee damage!`
+      // Keep name empty for all levels since the image shows the title
       break
   }
 }
