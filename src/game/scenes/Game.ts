@@ -220,11 +220,14 @@ export class Game extends Scene {
       console.log('Weaponrack3 image loaded successfully from provided asset');
     });
     
+    // Load scythe image for player upgrades
+    this.load.image('scythe', 'https://cdn.jsdelivr.net/gh/localgod13/chariot-assets@New-branch-reverted/public/assets/scythe.png')
+    
     // Load background music
-    this.load.audio('arena', 'https://1jnxxd5hmjmhwwrc.public.blob.vercel-storage.com/arena-6OLO9iZKW6G7wyuzBXPiOe8q62FiYD.mp3');
+    this.load.audio('arena', 'https://1jnxxd5hmjmhwwrc.public.blob.vercel-storage.com/arena-6OLO9iZKW6G7wyuzBXPiOe8q62FiYD.mp3')
     
     // Load movement sound effect
-    this.load.audio('trot', 'https://1jnxxd5hmjmhwwrc.public.blob.vercel-storage.com/trot-GAeQzWni7rkutYD4RQ34Vrp3vEXpEq.mp3');
+    this.load.audio('trot', 'https://1jnxxd5hmjmhwwrc.public.blob.vercel-storage.com/trot-GAeQzWni7rkutYD4RQ34Vrp3vEXpEq.mp3')
     
     // Load attack sound effects
     this.load.audio('canon', 'https://1jnxxd5hmjmhwwrc.public.blob.vercel-storage.com/canon-b5OYxoaQsyITqiw8zAb5PcIKN0tyna.mp3');
@@ -497,6 +500,8 @@ export class Game extends Scene {
         this.debugLevelUp();
       }
     });
+    
+
   }
 
   private onEnemyKilled(): void {

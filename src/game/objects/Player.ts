@@ -65,6 +65,15 @@ export class Player extends Phaser.GameObjects.Container {
   private muzzleFlashGraphics: Phaser.GameObjects.Graphics | null = null
   private muzzleFlashTween: Phaser.Tweens.Tween | null = null
   
+  // Scythe system
+  private leftScythe: Phaser.GameObjects.Image | null = null
+  private rightScythe: Phaser.GameObjects.Image | null = null
+  private scythesVisible: boolean = true
+  private scytheFlipTimer: number = 0
+  private readonly SCYTHE_FLIP_INTERVAL: number = 80 // 0.08 seconds in milliseconds
+  private scythesFlipped: boolean = false
+
+  
   constructor(scene: Scene, x: number, y: number) {
     super(scene, x, y)
     
@@ -82,11 +91,26 @@ export class Player extends Phaser.GameObjects.Container {
       volume: 0.4 // Set to 40% volume so it doesn't overpower other sounds
     })
     
-    // Create chariot sprite instead of graphics shape
+    // Create scythe sprites first (so they render behind the chariot)
+    this.leftScythe = scene.add.image(-42.4, 48.0, 'scythe')
+    this.leftScythe.setScale(0.110)
+    this.leftScythe.setOrigin(0.5, 0.5)
+    this.leftScythe.setRotation(Math.PI) // Point west (left)
+    this.leftScythe.setVisible(true)
+    this.add(this.leftScythe) // Add scythes first
+
+    this.rightScythe = scene.add.image(40.8, 51.2, 'scythe')
+    this.rightScythe.setScale(0.110)
+    this.rightScythe.setOrigin(0.5, 0.5)
+    this.rightScythe.setRotation(0) // Point east (right) - default direction
+    this.rightScythe.setVisible(true)
+    this.add(this.rightScythe) // Add scythes first
+    
+    // Create chariot sprite after scythes (so it renders on top)
     this.chariotSprite = scene.add.image(0, 0, 'chariot')
     this.chariotSprite.setScale(0.21) // Reduced by 30% from 0.3 to 0.21
     this.chariotSprite.setOrigin(0.5, 0.5)
-    this.add(this.chariotSprite)
+    this.add(this.chariotSprite) // Add chariot last so it renders on top
     
     // Add to scene first
     scene.add.existing(this)
@@ -141,12 +165,14 @@ export class Player extends Phaser.GameObjects.Container {
     if (this.wasd.D) this.wasd.D.reset()
     
     console.log('Player input handlers initialized:', {
-      cursors: !!this.cursors,
+      cursors: !!this.wasd?.W,
       wasd: !!this.wasd,
       W: !!this.wasd?.W,
       S: !!this.wasd?.S
     })
   }
+
+
 
   update(time: number, enemies: Phaser.GameObjects.Group) {
     this.handleMouseRotation()
@@ -156,6 +182,8 @@ export class Player extends Phaser.GameObjects.Container {
     this.keepInBounds()
     this.updateTrails(time)
     this.updateMovementSound()
+    this.updateScythePositions()
+    this.updateScytheFlipping(time)
   }
 
   private updateTrails(time: number) {
@@ -1134,6 +1162,44 @@ export class Player extends Phaser.GameObjects.Container {
     // Recreate WASD key listeners
     this.wasd = this.scene.input.keyboard!.addKeys('W,S,A,D')
   }
+  
+
+  
+  public areScythesVisible(): boolean {
+    return this.scythesVisible
+  }
+
+
+  
+    private updateScythePositions(): void {
+    // Since scythes are children of the Player container, their relative positions
+    // and rotations are maintained automatically during container rotation.
+    // No updates needed - the container handles everything!
+  }
+
+  private updateScytheFlipping(time: number): void {
+    // Only flip scythes when the player is moving
+    if (this.isMoving && this.leftScythe && this.rightScythe) {
+      // Check if it's time to flip
+      if (time - this.scytheFlipTimer >= this.SCYTHE_FLIP_INTERVAL) {
+        this.scythesFlipped = !this.scythesFlipped
+        
+        // Flip both scythes vertically
+        this.leftScythe.setFlipY(this.scythesFlipped)
+        this.rightScythe.setFlipY(this.scythesFlipped)
+        
+        // Update the timer
+        this.scytheFlipTimer = time
+      }
+    } else if (!this.isMoving && this.leftScythe && this.rightScythe) {
+      // Reset to normal orientation when stopped
+      this.leftScythe.setFlipY(false)
+      this.rightScythe.setFlipY(false)
+      this.scythesFlipped = false
+    }
+  }
+
+
 
   destroy() {
     // Clean up movement sound
@@ -1161,6 +1227,16 @@ export class Player extends Phaser.GameObjects.Container {
     if (this.muzzleFlashGraphics) {
       this.muzzleFlashGraphics.destroy()
       this.muzzleFlashGraphics = null
+    }
+    
+    // Clean up scythes
+    if (this.leftScythe) {
+      this.leftScythe.destroy()
+      this.leftScythe = null
+    }
+    if (this.rightScythe) {
+      this.rightScythe.destroy()
+      this.rightScythe = null
     }
     
     super.destroy()
